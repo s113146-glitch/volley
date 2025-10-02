@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡易排球遊戲</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: sans-serif;
+        }
+        #game-container {
+            position: relative;
+        }
+        canvas {
+            border: 2px solid black;
+            background-color: #87CEEB; /* 天藍色背景 */
+        }
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 30px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px #000000;
+        }
+        #controls {
+            margin-top: 20px;
+            font-size: 18px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h2>簡易排球遊戲</h2>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        <div id="score">0 - 0</div>
+    </div>
+    <div id="controls">
+        控制: [A] 向左 - [D] 向右 - [空白鍵] 跳躍
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+
+        // 遊戲常數
+        const GRAVITY = 0.25; // 再次減弱重力，讓跳躍時間更長
+        const PLAYER_SPEED = 5;
+        const JUMP_POWER = -8.5; // 再次配合重力減弱，調整跳躍力
+        const MAX_SCORE = 25;
+
+        // --- 視覺資源 ---
+        const playerImg = new Image();
+        playerImg.src = 'player.svg';
+        const aiImg = new Image();
+        aiImg.src = 'ai.svg';
+        const ballImg = new Image();
+        ballImg.src = 'ball.svg';
+
+        // =========================================================================
+        // CLASSES (類別定義)
+        // =========================================================================
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.dx = (Math.random() - 0.5) * 4;
+                this.dy = (Math.random() - 0.5) * 4;
+                this.life = Math.random() * 20 + 10;
+                this.radius = Math.random() * 2 + 1;
+                this.color = color;
+            }
+
+            update() {
+                this.x += this.dx;
+                this.y += this.dy;
+                this.life -= 1;
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.globalAlpha = Math.max(0, this.life / 30);
+                ctx.fillStyle = this.color;
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.closePath();
+            }
+        }
+
+        class Ball {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 18;
+                this.dx = 4;
+                this.dy = -4;
+                this.rotation = 0;
+            }
+
+            update() {
+                this.x += this.dx;
+                this.dy += GRAVITY;
+                this.y += this.dy;
+                this.rotation += this.dx * 0.05;
+
+                // 邊界碰撞
+                if ((this.x + this.radius > canvas.width && this.dx > 0) || (this.x - this.radius < 0 && this.dx < 0)) {
+                    this.dx *= -1;
+                }
+                if (this.y - this.radius < 0 && this.dy < 0) {
+                    this.dy *= -1;
+                }
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.drawImage(ballImg, -this.radius, -this.radius, this.radius * 2, this.radius * 2);
+                ctx.restore();
+            }
+            
+            reset(direction) {
+                this.y = canvas.height / 2;
+                this.dy = Math.random() * -5 - 3;
+                if (direction === 'left') {
+                    this.x = canvas.width * 3 / 4;
+                    this.dx = -4;
+                } else {
+                    this.x = canvas.width / 4;
+                    this.dx = 4;
+                }
+            }
+        }
+
+        class Character {
+            constructor(x, y, width, height, img) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.img = img;
+                this.dx = 0;
+                this.dy = 0;
+                this.onGround = true;
+            }
+
+            applyGravity() {
+                this.dy += GRAVITY;
+                this.y += this.dy;
+            }
+
+            handleGroundCollision() {
+                if (this.y + this.height >= canvas.height) {
+                    this.y = canvas.height - this.height;
+                    this.dy = 0;
+                    this.onGround = true;
+                }
+            }
+
+            draw(ctx) {
+                ctx.drawImage(this.img, this.x, this.y, this.width, this.height);
+            }
+            
+            get centerX() {
+                return this.x + this.width / 2;
+            }
+        }
+
+        class Player extends Character {
+            constructor(x, y, width, height, img) {
+                super(x, y, width, height, img);
+            }
+
+            update(keys, net) {
+                this.dx = 0;
+                if (keys.a) this.dx = -PLAYER_SPEED;
+                if (keys.d) this.dx = PLAYER_SPEED;
+                this.x += this.dx;
+
+                this.applyGravity();
+                this.handleGroundCollision();
+
+                // 邊界限制
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > net.x) {
+                    this.x = net.x - this.width;
+                }
+            }
+
+            jump() {
+                if (this.onGround) {
+                    this.dy = JUMP_POWER;
+                    this.onGround = false;
+                }
+            }
+        }
+
+        class Ai extends Character {
+            constructor(x, y, width, height, img) {
+                super(x, y, width, height, img);
+                this.targetX = x;
+                this.reactionSpeed = 0.1;
+                this.jumpCooldown = 0; // 新增跳躍冷卻
+            }
+
+            update(ball, net) {
+                // 更新冷卻時間
+                if (this.jumpCooldown > 0) {
+                    this.jumpCooldown--;
+                }
+
+                // AI 邏輯
+                if (ball.x > canvas.width / 2) {
+                    // 擊球策略：不再總是對準球心，而是稍微偏移以打出角度
+                    let hitOffset = (Math.random() - 0.5) * this.width * 1.5; // -0.75 to +0.75 of its width
+                    let predictedBallX = ball.x + ball.dx * (Math.abs(this.y - ball.y) / 15);
+                    this.targetX = predictedBallX + hitOffset;
+
+                    // 跳躍邏輯: 增加冷卻時間判斷
+                    if (this.onGround && this.jumpCooldown === 0 && ball.y < this.y + this.height && ball.dy > 0 && Math.abs(ball.x - this.centerX) < this.width * 1.2) {
+                        this.dy = JUMP_POWER * 1.1;
+                        this.onGround = false;
+                        this.jumpCooldown = 30; // 設置30幀 (約0.5秒) 的冷卻時間
+                    }
+                } else {
+                    this.targetX = canvas.width * 0.75;
+                }
+
+                this.x += (this.targetX - this.centerX) * this.reactionSpeed;
+
+                this.applyGravity();
+                this.handleGroundCollision();
+
+                // 邊界限制
+                if (this.x < net.x + net.width) this.x = net.x + net.width;
+                if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+            }
+        }
+
+        // =========================================================================
+        // GAME SETUP (遊戲設定)
+        // =========================================================================
+
+        // 遊戲狀態
+        let gameState = 'start'; // 'start', 'serving', 'playing', 'gameOver'
+        let playerScore = 0;
+        let aiScore = 0;
+        let particles = [];
+        let server = null; // 目前發球者
+        let serveCooldown = 0; // AI 發球延遲
+
+        // 遊戲物件實例化
+        const player = new Player(150, 350, 50, 70, playerImg);
+        const ai = new Ai(600, 350, 50, 70, aiImg);
+        const ball = new Ball(canvas.width / 4, canvas.height / 2);
+        const net = {
+            x: canvas.width / 2 - 2.5,
+            y: canvas.height - 150,
+            width: 5,
+            height: 150
+        };
+
+        const keys = {
+            a: false,
+            d: false
+        };
+
+        // =========================================================================
+        // EVENT LISTENERS (事件監聽)
+        // =========================================================================
+
+        document.addEventListener('keydown', (e) => {
+            if (gameState === 'start' || gameState === 'gameOver') {
+                resetGame();
+            } else if (gameState === 'serving' && server === player && e.code === 'Space') {
+                // 玩家發球
+                player.jump(); // 發球時同時跳躍
+                ball.dx = 2.0; // 再次降低發球速度
+                ball.dy = -4.0;
+                gameState = 'playing';
+            } else if (gameState === 'playing') {
+                if (e.code === 'KeyA') keys.a = true;
+                if (e.code === 'KeyD') keys.d = true;
+                if (e.code === 'Space') player.jump();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'KeyA') keys.a = false;
+            if (e.code === 'KeyD') keys.d = false;
+        });
+
+        // =========================================================================
+        // GAME LOGIC FUNCTIONS (遊戲邏輯函式)
+        // =========================================================================
+        
+        function setServe(scorer) {
+            gameState = 'serving';
+            server = scorer;
+            ball.dx = 0;
+            ball.dy = 0;
+            if (server === ai) {
+                serveCooldown = 60; // AI 發球前等待1秒
+            }
+        }
+
+        function resetGame() {
+            if (gameState === 'gameOver' || gameState === 'start') {
+                playerScore = 0;
+                aiScore = 0;
+            }
+            updateScore();
+            setServe(Math.random() > 0.5 ? player : ai); // 隨機一方發球
+            player.x = 150;
+            player.y = 350;
+            ai.x = 600;
+            ai.y = 350;
+            particles = [];
+        }
+
+        function updateScore() {
+            scoreElement.textContent = `${playerScore} - ${aiScore}`;
+            if (playerScore >= MAX_SCORE || aiScore >= MAX_SCORE) {
+                gameState = 'gameOver';
+            }
+        }
+
+        function createParticles(x, y, count = 10, color = '#FBBC05') {
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(x, y, color));
+            }
+        }
+
+        function checkBallCollision(character) {
+            const circle = { x: ball.x, y: ball.y, r: ball.radius };
+            const rect = { x: character.x, y: character.y, w: character.width, h: character.height };
+            
+            let testX = circle.x;
+            let testY = circle.y;
+
+            if (circle.x < rect.x) testX = rect.x;
+            else if (circle.x > rect.x + rect.w) testX = rect.x + rect.w;
+            if (circle.y < rect.y) testY = rect.y;
+            else if (circle.y > rect.y + rect.h) testY = rect.y + rect.h;
+
+            const distX = circle.x - testX;
+            const distY = circle.y - testY;
+            const distance = Math.sqrt((distX * distX) + (distY * distY));
+
+            return distance <= circle.r;
+        }
+
+        function handleBallPhysics(character) {
+            ball.dy *= -0.95; // 減弱擊球後的垂直反彈力
+            ball.y = character.y - ball.radius;
+            let hitPoint = (ball.x - character.centerX) / (character.width / 2);
+            ball.dx = hitPoint * 5.5; // 稍微減弱擊球影響力
+        }
+
+        // =========================================================================
+        // MAIN GAME LOOP (主遊戲迴圈)
+        // =========================================================================
+
+        function gameLoop() {
+            // --- 1. Update Logic ---
+            if (gameState === 'playing') {
+                player.update(keys, net);
+                ai.update(ball, net);
+                ball.update();
+
+                // 落地計分
+                if (ball.y + ball.radius > canvas.height) {
+                    createParticles(ball.x, canvas.height - 5, 15, '#FFFFFF');
+                    if (ball.x < canvas.width / 2) {
+                        aiScore++;
+                        updateScore();
+                        if(gameState !== 'gameOver') setServe(ai);
+                    } else {
+                        playerScore++;
+                        updateScore();
+                        if(gameState !== 'gameOver') setServe(player);
+                    }
+                }
+
+                // 碰撞
+                if (checkBallCollision(player)) {
+                    createParticles(ball.x, ball.y, 10, '#4285F4');
+                    handleBallPhysics(player);
+                }
+                if (checkBallCollision(ai)) {
+                    createParticles(ball.x, ball.y, 10, '#DB4437');
+                    handleBallPhysics(ai);
+                }
+                
+                // 網子碰撞
+                if (ball.x + ball.radius > net.x && ball.x - ball.radius < net.x + net.width && ball.y + ball.radius > net.y) {
+                    createParticles(ball.x, ball.y, 5, '#FFFFFF');
+                    if(Math.abs(ball.dx) > 0.1) ball.dx *= -1;
+                }
+            } else if (gameState === 'serving') {
+                player.update(keys, net); // 讓玩家在發球時也能移動
+                ai.update(ball, net);   // AI 也回到防守位置
+                
+                // 球跟隨發球者
+                ball.x = server.centerX;
+                ball.y = server.y - ball.radius - 5;
+
+                if (server === ai) {
+                    serveCooldown--;
+                    if (serveCooldown <= 0) {
+                        // AI 發球
+                        ball.dx = -2.0; // 再次降低發球速度
+                        ball.dy = -4.0;
+                        gameState = 'playing';
+                    }
+                }
+            }
+
+            // --- 2. Drawing ---
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 繪製陰影
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 5;
+            ctx.shadowOffsetY = 5;
+
+            player.draw(ctx);
+            ai.draw(ctx);
+            
+            ctx.shadowColor = 'transparent';
+
+            // 球在 playing 或 serving 狀態下都應該被繪製
+            if(gameState === 'playing' || gameState === 'serving') {
+                ball.draw(ctx);
+            }
+
+            ctx.fillStyle = '#333';
+            ctx.fillRect(net.x, net.y, net.width, net.height);
+
+            // 繪製粒子
+            particles.forEach((p, index) => {
+                p.update();
+                p.draw(ctx);
+                if (p.life <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+            ctx.globalAlpha = 1.0; // 重置透明度
+
+            // --- 3. UI / Text ---
+            if (gameState === 'start') {
+                drawText('簡易排球遊戲', canvas.width / 2, canvas.height / 2 - 40, '40px');
+                drawText('按任意鍵開始', canvas.width / 2, canvas.height / 2 + 20);
+            } else if (gameState === 'gameOver') {
+                let winnerText = playerScore >= MAX_SCORE ? '你贏了！' : '電腦獲勝';
+                drawText('遊戲結束', canvas.width / 2, canvas.height / 2 - 60, '40px');
+                drawText(winnerText, canvas.width / 2, canvas.height / 2 - 10, '30px');
+                drawText('按任意鍵重新開始', canvas.width / 2, canvas.height / 2 + 40, '20px');
+            } else if (gameState === 'serving') {
+                let serverName = server === player ? '你的' : '電腦的';
+                drawText(`${serverName}發球`, canvas.width / 2, canvas.height / 2 - 40, '30px');
+                if (server === player) {
+                    drawText('按[空白鍵]發球', canvas.width / 2, canvas.height / 2, '20px');
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // =========================================================================
+        // UTILITY FUNCTIONS (工具函式)
+        // =========================================================================
+        function drawText(text, x, y, size = '30px', color = 'white') {
+            ctx.fillStyle = color;
+            ctx.font = `bold ${size} sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 5;
+            ctx.fillText(text, x, y);
+            ctx.shadowColor = 'transparent';
+        }
+
+        // 啟動遊戲
+        gameLoop();
+        
+        // =========================================================================
+        // UTILITY FUNCTIONS (工具函式)
+        // =========================================================================
+        function drawText(text, x, y, size = '30px', color = 'white') {
+            ctx.fillStyle = color;
+            ctx.font = `bold ${size} sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 5;
+            ctx.fillText(text, x, y);
+            ctx.shadowColor = 'transparent';
+        }
+
+        // 啟動遊戲
+        gameState = 'start';
+        gameLoop();
+    </script>
+</body>
+</html>

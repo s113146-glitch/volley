@@ -1,0 +1,19 @@
+<svg viewBox="0 0 50 70" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="1" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <g style="filter: url(#shadow);">
+    <!-- Head -->
+    <circle cx="25" cy="15" r="12" fill="#DB4437"/>
+    <!-- Body -->
+    <rect x="15" y="27" width="20" height="28" rx="5" fill="#DB4437"/>
+    <!-- Arms -->
+    <rect x="5" y="30" width="10" height="18" rx="5" fill="#F4B400"/>
+    <rect x="35" y="30" width="10" height="18" rx="5" fill="#F4B400"/>
+    <!-- Legs -->
+    <rect x="15" y="55" width="8" height="15" rx="4" fill="#0F9D58"/>
+    <rect x="27" y="55" width="8" height="15" rx="4" fill="#0F9D58"/>
+  </g>
+</svg>
